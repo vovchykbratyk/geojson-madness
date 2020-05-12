@@ -1,6 +1,6 @@
-import imp
+import importlib.util as imp
 import os
-import urlparse
+import urllib.parse
 
 import arcpy
 
@@ -43,11 +43,13 @@ class ImportGeoJSON(object):
         pass
 
     def execute(self, parameters, messages):
-        found_in = imp.find_module('geojson_in', [os.path.dirname(__file__)])
-        json_in = imp.load_module('geojson_in', *found_in)
+        found_in = imp._find_spec_from_path('geojson_in', [os.path.dirname(__file__)])
+        json_in = imp.module_from_spec(found_in)
+        found_in.loader.exec_module(json_in)
+        # json_in = imp.load_module('geojson_in', *found_in)
 
         args = [parameters[idx].valueAsText
-                for idx in xrange(len(parameters))]
+                for idx in range(len(parameters))]
 
         json_in.geojson_to_feature(*args)
 
@@ -71,11 +73,14 @@ class ImportGeoJSONFromURL(ImportGeoJSON):
 
     def updateParameters(self, parameters):
         if parameters[0].value:
-            parsed_url = list(urlparse.urlparse(parameters[0].valueAsText))
+            parsed_url = list(urllib.parse.urlparse(parameters[0].valueAsText))
+            # parsed_url = list(urlparse.urlparse(parameters[0].valueAsText))
             if parsed_url[0].lower() not in ('http', 'https'):
                 parsed_url[0] = 'http'
-            parameters[0].value = urlparse.urlunparse(parsed_url)
+            parameters[0].value = urllib.parse.urlparse(parsed_url)
+            # parameters[0].value = urlparse.urlunparse(parsed_url)
         return super(ImportGeoJSONFromURL, self).updateParameters(parameters)
+
 
 class ExportGeoJSON(object):
     def __init__(self):
@@ -134,11 +139,14 @@ class ExportGeoJSON(object):
         pass
 
     def execute(self, parameters, messages):
-        found_out = imp.find_module('geojson_out', [os.path.dirname(__file__)])
-        json_out = imp.load_module('geojson_out', *found_out)
+        found_out = imp._find_spec_from_path('geojson_out', [os.path.dirname(__file__)])
+        json_out = imp.module_from_spec(found_out)
+        found_out.loader.exec_module(json_out)
+        # found_out = imp.find_module('geojson_out', [os.path.dirname(__file__)])
+        # json_out = imp.load_module('geojson_out', *found_out)
 
         args = [parameters[idx].valueAsText
-                for idx in xrange(len(parameters))]
+                for idx in range(len(parameters))]
         write_gist = args[-1] == "true"
 
         if write_gist:

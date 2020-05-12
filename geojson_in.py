@@ -2,11 +2,12 @@
 import json
 import os
 import re
-import urllib2
+import urllib.request
 
 import arcpy
 
 __all__ = ['geojson_to_feature']
+
 
 def load_geojson_struct(in_json_location):
     arcpy.AddMessage("Importing JSON file")
@@ -14,23 +15,26 @@ def load_geojson_struct(in_json_location):
     if os.path.isfile(in_json_location):
         in_handle = open(in_json_location, 'rb')
     else:
-        in_handle = urllib2.urlopen(in_json_location)
+        in_handle = urllib.request.urlopen(in_json_location)
     return json.load(in_handle)
+
 
 # "Enumeration" for field type guesser
 NULL, INT, FLOAT, STRING = 0, 1, 2, 3
 
+
 def guess_type(value):
     if value is None:
-        return (NULL, 0)
+        return NULL, 0
     elif isinstance(value, int):
-        return (INT, 4 if value > 256 else 2)
+        return INT, 4 if value > 256 else 2
     elif isinstance(value, float):
-        return (FLOAT, 8)
+        return FLOAT, 8
     else:
-        if not isinstance(value, basestring):
+        if not isinstance(value, str):
             value = json.dumps(value)
-        return (STRING, len(value))
+        return STRING, len(value)
+
 
 def fix_field_name(field_name, field_index, used_field_names):
     if not (field_name or '1')[0].isalpha():
@@ -46,8 +50,9 @@ def fix_field_name(field_name, field_index, used_field_names):
         num += 1
     return f_field_name
 
+
 def determine_schema(json_struct):
-    geometry_type_mapping  = {
+    geometry_type_mapping = {
         'LineString': "POLYLINE",
         'MultiLineString': "POLYLINE",
         'Point': "POINT",
@@ -92,21 +97,23 @@ def determine_schema(json_struct):
             'fields': fields,
             'field_names': field_names}
 
+
 def field_info(field_tuple):
     dtype, dlength = field_tuple
     if dtype == NULL:
-        return ("SHORT", 2)
+        return "SHORT", 2
     elif dtype == INT:
-        return ("LONG", 8)
+        return "LONG", 8
     elif dtype == FLOAT:
-        return ("DOUBLE", 8)
+        return "DOUBLE", 8
     else:
-        return ("TEXT", dlength)
+        return "TEXT", dlength
+
 
 def create_feature_class(catalog_path, out_schema):
     arcpy.AddMessage("Creating feature class")
-    spatial_reference = arcpy.SpatialReference('WGS 1984')
-    arcpy.management.CreateFeatureclass(os.path.dirname(catalog_path),
+    spatial_reference = arcpy.SpatialReference(4326)
+    arcpy.CreateFeatureclass_management(os.path.dirname(catalog_path),
                                         os.path.basename(catalog_path),
                                         out_schema['geometry_type'],
                                         spatial_reference=spatial_reference)
@@ -116,10 +123,11 @@ def create_feature_class(catalog_path, out_schema):
         field_type, field_length = field_info(field_info_tuple)
         arcpy.AddMessage("Field {} (type {})".format(sane_field_name,
                                                      field_type))
-        arcpy.management.AddField(catalog_path, sane_field_name, field_type,
+        arcpy.AddField_management(catalog_path, sane_field_name, field_type,
                                   field_length=field_length,
                                   field_alias=field_name,
                                   field_is_nullable="NULLABLE")
+
 
 def geojson_to_geometry(geometry_struct):
     coordinates = geometry_struct['coordinates']
@@ -157,24 +165,24 @@ def geojson_to_geometry(geometry_struct):
     else:
         raise TypeError("Cannot handle geometry type {}".format(geometry_struct['type']))
 
+
 def write_features(out_feature_class, out_schema, json_struct):
     arcpy.AddMessage("Writing features")
     # Create a list of (sane_field_name, field_name) tuples
-    reverse_field_name_mapping = list(sorted((v, k)
-                                      for k, v
-                                      in out_schema['field_names'].iteritems()))
+    reverse_field_name_mapping = list(sorted((v, k) for k, v in out_schema['field_names'].iteritems()))
     fields = ["SHAPE@WKT"] + [f[0] for f in reverse_field_name_mapping]
     record_count = len(json_struct['features'])
     arcpy.SetProgressor("step", "Writing rows", 0, record_count)
+
     with arcpy.da.InsertCursor(out_feature_class, fields) as out_cur:
         for row_index, row_struct in enumerate(json_struct['features']):
-            if (row_index % 100 == 1):
+            if row_index % 100 == 1:
                 arcpy.SetProgressorPosition(row_index)
             row_data = row_struct['properties']
-            row_list = [row_data.get(k[1], None)
-                        for k in reverse_field_name_mapping]
+            row_list = [row_data.get(k[1], None) for k in reverse_field_name_mapping]
             wkt = geojson_to_geometry(row_struct['geometry'])
             out_cur.insertRow([wkt] + row_list)
+
 
 def geojson_to_feature(in_geojson, out_feature_class):
     json_struct = load_geojson_struct(in_geojson)

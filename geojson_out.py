@@ -1,11 +1,14 @@
 # coding: utf-8
 import json
 import os
+import sys
+import urllib.request
 import urllib2
 
 import arcpy
 
 __all__ = ['write_geojson_file', 'post_gist', 'write_geojson_gist']
+
 
 def part_split_at_nones(part_items):
     current_part = []
@@ -19,6 +22,7 @@ def part_split_at_nones(part_items):
     if current_part:
         yield current_part
 
+
 def geometry_to_struct(in_geometry):
     if in_geometry is None:
         return None
@@ -30,7 +34,7 @@ def geometry_to_struct(in_geometry):
                }
     elif isinstance(in_geometry, arcpy.Polyline):
         parts = [[(point.X, point.Y) for point in in_geometry.getPart(part)]
-                 for part in xrange(in_geometry.partCount)]
+                 for part in range(in_geometry.partCount)]
         if len(parts) == 1:
             return {
                         'type': "LineString",
@@ -43,7 +47,7 @@ def geometry_to_struct(in_geometry):
                    }
     elif isinstance(in_geometry, arcpy.Polygon):
         parts = [list(part_split_at_nones(in_geometry.getPart(part)))
-                 for part in xrange(in_geometry.partCount)]
+                 for part in range(in_geometry.partCount)]
         if len(parts) == 1:
             return {
                         'type': "Polygon",
@@ -57,7 +61,12 @@ def geometry_to_struct(in_geometry):
     else:
         raise ValueError(in_geometry)
 
+
 def utf8ify(fn_):
+    is_python3 = sys.version_info.major == 3
+    if is_python3:
+        unicode = str
+
     def fn(*a, **k):
         for output in fn_(*a, **k):
             if isinstance(output, unicode):
@@ -75,17 +84,18 @@ def utf8ify(fn_):
                 yield output
     return fn
 
+
 @utf8ify
 def geojson_lines_for_feature_class(in_feature_class):
     shape_field = arcpy.Describe(in_feature_class).shapeFieldName
-    spatial_reference = arcpy.SpatialReference('WGS 1984')
+    spatial_reference = arcpy.SpatialReference(4326)
 
     aliased_fields = {
                             field.name: (field.aliasName or field.name)
                             for field in arcpy.ListFields(in_feature_class)
                      }
 
-    record_count = int(arcpy.management.GetCount(in_feature_class)[0])
+    record_count = int(arcpy.GetCount_management(in_feature_class)[0])
     arcpy.SetProgressor("step", "Writing records", 0, record_count)
 
     with arcpy.da.SearchCursor(in_feature_class, ['SHAPE@', '*'],
@@ -97,7 +107,7 @@ def geojson_lines_for_feature_class(in_feature_class):
         for row_idx, row in enumerate(in_cur):
             if row_idx:
                 yield "    ,"
-            if (row_idx % 100 == 1):
+            if row_idx % 100 == 1:
                 arcpy.SetProgressorPosition(row_idx)
             geometry_dict = geometry_to_struct(row[0])
             property_dict = dict(zip(col_names, row[1:]))
@@ -113,8 +123,10 @@ def geojson_lines_for_feature_class(in_feature_class):
         yield '  ]'
         yield '}'
 
+
 def get_geojson_string(in_feature_class):
     return "\n".join(geojson_lines_for_feature_class(in_feature_class))
+
 
 def write_geojson_file(in_feature_class, out_json_file):
     arcpy.AddMessage("Writing features from {} to {}".format(in_feature_class,
@@ -123,21 +135,22 @@ def write_geojson_file(in_feature_class, out_json_file):
         for line in geojson_lines_for_feature_class(in_feature_class):
             out_json.write(line + "\n")
 
+
 def post_gist(in_feature_class, feature_geojson):
     filename = os.path.basename(in_feature_class) + ".json"
     gist_payload = {
-                        'description':
-                            u"Feature Layer {}".format(in_feature_class),
+                        'description': u"Feature Layer {}".format(in_feature_class),
                         'public': True,
                         'files': {
-                            filename: { "content": feature_geojson }
-                        }
+                            filename: {"content": feature_geojson}
+                            }
                    }
-    req = urllib2.Request("https://api.github.com/gists",
-                          json.dumps(gist_payload),
-                          headers = {'Content-Type': 'application/json'})
-    reponse = urllib2.urlopen(req)
-    return json.loads(reponse.read())["url"]
+    j_payload = json.dumps(gist_payload)
+    req = urllib.request.Request("https://api.github.gists", j_payload,
+                                 headers={'Content-Type': 'application/json'})
+    response = urllib.request.urlopen(req)
+    return json.loads(response.read())["url"]
+
 
 def write_geojson_gist(in_feature_class):
     arcpy.AddMessage("Getting GeoJSON from features")
